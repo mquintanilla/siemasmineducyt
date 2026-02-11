@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Seguimiento Ambiental y Social - MINEDUCYT / BCIE</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --primary: #0ea5e9; --accent: #10b981; --bg: #0f172a; --panel: #1e293b; --text: #f1f5f9; --glass: rgba(30, 41, 59, 0.9); }
+        body { font-family: 'Inter', system-ui, sans-serif; margin: 0; display: flex; height: 100vh; background: var(--bg); color: var(--text); overflow: hidden; }
+        
+        #sidebar { width: 420px; background: var(--panel); border-right: 1px solid #334155; display: flex; flex-direction: column; z-index: 1000; box-shadow: 10px 0 30px rgba(0,0,0,0.5); }
+        header { padding: 25px 20px; background: linear-gradient(135deg, #004b8d 0%, #002d54 100%); text-align: center; border-bottom: 3px solid var(--primary); }
+        header h1 { font-size: 0.85rem; margin: 0; text-transform: uppercase; letter-spacing: 1px; line-height: 1.5; color: white; }
+
+        .upload-section { padding: 20px; background: rgba(0,0,0,0.2); }
+        .file-label { display: flex; align-items: center; justify-content: center; gap: 12px; background: rgba(14, 165, 233, 0.1); border: 2px dashed var(--primary); color: var(--primary); padding: 14px; border-radius: 12px; cursor: pointer; font-weight: bold; transition: 0.3s; text-transform: uppercase; font-size: 13px; }
+        .file-label:hover { background: var(--primary); color: white; }
+
+        #status { font-size: 11px; text-align: center; margin-top: 10px; padding: 8px; border-radius: 8px; font-weight: 500; }
+        .status-loading { color: #f59e0b; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); }
+        .status-success { color: var(--accent); background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); }
+        .status-error { color: #ef4444; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); }
+
+        .scroll-content { padding: 15px; overflow-y: auto; flex: 1; }
+        .filter-card { background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; margin-bottom: 12px; border: 1px solid #334155; }
+        .filter-group { position: relative; }
+        .filter-group label { display: block; font-size: 9px; color: #94a3b8; text-transform: uppercase; margin-bottom: 6px; font-weight: 800; }
+        
+        .analyze-toggle { position: absolute; right: 0; top: 0; display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 9px; color: #94a3b8; }
+        .analyze-toggle.active { color: var(--accent); font-weight: bold; }
+
+        select, input { width: 100%; background: #0f172a; border: 1px solid #475569; color: white; padding: 8px 10px; border-radius: 6px; font-size: 12px; outline: none; }
+
+        #map-area { flex: 1; position: relative; }
+        #map { height: 100%; width: 100%; background: #0b0f1a; }
+
+        .stats-container { position: absolute; top: 20px; left: 20px; z-index: 1000; display: flex; gap: 15px; pointer-events: none; }
+        .stat-card { background: var(--glass); backdrop-filter: blur(12px); padding: 12px 20px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.1); text-align: center; }
+        .stat-card h3 { margin: 0; font-size: 9px; text-transform: uppercase; color: #94a3b8; }
+        .stat-card p { margin: 5px 0 0; font-size: 1.8rem; font-weight: 800; color: var(--primary); }
+
+        #chart-overlay { position: absolute; bottom: 30px; left: 20px; z-index: 1000; background: var(--glass); backdrop-filter: blur(15px); padding: 20px; border-radius: 20px; width: 380px; border: 1px solid rgba(255,255,255,0.2); display: none; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+    </style>
+</head>
+<body>
+
+<div id="sidebar">
+    <header><h1>Seguimiento de condiciones ambientales y sociales<br>MINEDUCYT / BCIE</h1></header>
+    <div class="upload-section">
+        <label class="file-label">
+            <span>📂 CARGAR DATOS (LOCAL)</span>
+            <input type="file" id="fileInput" accept=".csv, .xlsx" style="display:none">
+        </label>
+        <div id="status" class="status-loading">Conectando con la base de datos...</div>
+    </div>
+    <div class="scroll-content">
+        <div class="filter-card">
+            <div class="filter-group">
+                <label>🔎 BUSCAR CENTRO / CÓDIGO</label>
+                <input type="text" id="mainSearch" placeholder="Escriba aquí...">
+            </div>
+        </div>
+        <div id="dynamicFilters"></div>
+    </div>
+</div>
+
+<div id="map-area">
+    <div id="map"></div>
+    <div class="stats-container">
+        <div class="stat-card"><h3>Total Centros</h3><p id="totalUniv">0</p></div>
+        <div class="stat-card"><h3>Seleccionados</h3><p id="totalSel" style="color: var(--accent);">0</p></div>
+    </div>
+    <div id="chart-overlay">
+        <h4 id="chartTitle" style="margin:0 0 15px 0; text-align:center; font-size:11px; color:var(--accent); text-transform:uppercase;">Análisis</h4>
+        <div style="height: 250px;"><canvas id="executiveChart"></canvas></div>
+    </div>
+</div>
+
+<script>
+    let db = [];
+    let activeChart = null;
+    let analysisKey = null;
+    const colors = ["#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4"];
+    let colorMap = {};
+
+    // CONFIGURACIÓN DE ORIGEN DE DATOS
+    const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQiyIjmU8Mpr4F3rnKa-y69G4Lf0wCk_FXo1GVgiFBSZI6rucPIG6PxVY9J5BjCYQ/pub?gid=1425429813&single=true&output=csv";
+    
+    // Bypass de CORS usando AllOrigins
+    const PROXY_URL = `https://api.allorigins.win/raw?url=${encodeURIComponent(SHEET_URL)}`;
+
+    // Inicialización del Mapa
+    const map = L.map('map', { center: [13.79, -88.89], zoom: 9, zoomControl: false });
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+    L.control.zoom({ position: 'topright' }).addTo(map);
+    const markers = L.layerGroup().addTo(map);
+
+    const filterConfig = [
+        { lab: "Departamento", key: "Departamento" },
+        { lab: "Etapa", key: "Etapa" },
+        { lab: "Rango de Avance", key: "RangoAvance" },
+        { lab: "Empresa obras", key: "Empresa obras" },
+        { lab: "Empresa supervisión", key: "Empresa supervisión" },
+        { lab: "PEGAS Ejecución", key: "PEGAS Ejecución" },
+        { lab: "Administrador de contrato", key: "Administrador de contrato" }
+    ];
+
+    // Función principal para cargar desde Sheets
+    async function loadFromSheets() {
+        const statusDiv = document.getElementById('status');
+        try {
+            Papa.parse(PROXY_URL, {
+                download: true,
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    if (results.data && results.data.length > 0) {
+                        processData(results.data);
+                        statusDiv.className = "status-success";
+                        statusDiv.innerText = "✅ Sincronizado con Google Sheets";
+                    } else {
+                        throw new Error("Datos vacíos");
+                    }
+                },
+                error: function(err) {
+                    statusDiv.className = "status-error";
+                    statusDiv.innerText = "❌ Error al leer datos del Sheet";
+                }
+            });
+        } catch (error) {
+            statusDiv.className = "status-error";
+            statusDiv.innerText = "❌ Error de conexión con el Proxy";
+        }
+    }
+
+    function processData(rawData) {
+        db = rawData.map(row => {
+            const cleanRow = {};
+            Object.keys(row).forEach(k => cleanRow[k.trim()] = row[k]);
+            
+            // Procesar porcentaje
+            let rawVal = String(cleanRow["Porcentaje de avance"] || "0").replace('%','');
+            let val = parseFloat(rawVal);
+            if (val > 1) val = val / 100; // Normalizar si es 85 en lugar de 0.85
+            
+            let rango = "N/A";
+            if (val >= 1) rango = "5. 100%";
+            else if (val < 0.10) rango = "1. Menor al 10%";
+            else if (val < 0.50) rango = "2. Menor al 50%";
+            else if (val < 0.70) rango = "3. Menor al 70%";
+            else rango = "4. Menor al 99%";
+            
+            cleanRow.RangoAvance = rango;
+            cleanRow["Porcentaje de avance"] = val;
+            return cleanRow;
+        });
+        renderUI();
+    }
+
+    // Carga de archivo local (Opcional)
+    document.getElementById('fileInput').onchange = function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            let data = [];
+            if (file.name.endsWith('.csv')) {
+                data = Papa.parse(evt.target.result, { header: true, skipEmptyLines: true }).data;
+            } else {
+                const wb = XLSX.read(evt.target.result, { type: 'array' });
+                data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+            }
+            processData(data);
+            document.getElementById('status').innerText = "📂 Cargado desde archivo local";
+            document.getElementById('status').className = "status-success";
+        };
+        file.name.endsWith('.csv') ? reader.readAsText(file) : reader.readAsArrayBuffer(file);
+    };
+
+    function renderUI() {
+        document.getElementById('totalUniv').innerText = db.length;
+        const container = document.getElementById('dynamicFilters');
+        container.innerHTML = "";
+        filterConfig.forEach(f => {
+            const vals = [...new Set(db.map(r => r[f.key]))].filter(v => v).sort();
+            const div = document.createElement('div');
+            div.className = "filter-card";
+            div.innerHTML = `
+                <div class="filter-group">
+                    <label>${f.lab}</label>
+                    <div class="analyze-toggle" id="toggle-${f.key}">
+                        <input type="radio" name="analyze" id="rad-${f.key}" onclick="handleAnalysisClick('${f.key}', '${f.lab}')"> Analizar
+                    </div>
+                    <select class="f-item" data-key="${f.key}"><option value="">-- Todos --</option>
+                    ${vals.map(v => `<option value="${v}">${v}</option>`).join('')}</select>
+                </div>`;
+            container.appendChild(div);
+        });
+        document.querySelectorAll('.f-item').forEach(s => s.onchange = update);
+        document.getElementById('mainSearch').oninput = update;
+        update();
+    }
+
+    function handleAnalysisClick(key, label) {
+        if (analysisKey === key) {
+            analysisKey = null;
+            document.getElementById('chart-overlay').style.display = "none";
+            document.querySelectorAll('.analyze-toggle').forEach(t => t.classList.remove('active'));
+        } else {
+            analysisKey = key;
+            document.querySelectorAll('.analyze-toggle').forEach(t => t.classList.remove('active'));
+            document.getElementById('toggle-' + key).classList.add('active');
+            document.getElementById('chartTitle').innerText = "Distribución por " + label;
+            document.getElementById('chart-overlay').style.display = "block";
+        }
+        update();
+    }
+
+    function update() {
+        markers.clearLayers();
+        const search = document.getElementById('mainSearch').value.toLowerCase();
+        colorMap = {};
+        let cIdx = 0;
+
+        const filtered = db.filter(row => {
+            const matchSearch = !search || String(row["Código"] || "").toLowerCase().includes(search) || String(row["Centro Educativo"] || "").toLowerCase().includes(search);
+            let matchFilters = true;
+            document.querySelectorAll('.f-item').forEach(sel => {
+                if(sel.value && String(row[sel.dataset.key]) !== sel.value) matchFilters = false;
+            });
+            return matchSearch && matchFilters;
+        });
+
+        filtered.forEach(row => {
+            const lat = parseFloat(row["Latitud"]), lng = parseFloat(row["Longitud"]);
+            if(!isNaN(lat) && !isNaN(lng)) {
+                let dotColor = "#0ea5e9";
+                if (analysisKey) {
+                    const v = row[analysisKey] || "Otros";
+                    if (!colorMap[v]) colorMap[v] = colors[cIdx++ % colors.length];
+                    dotColor = colorMap[v];
+                } else {
+                    dotColor = row["Porcentaje de avance"] >= 1 ? "#10b981" : "#0ea5e9";
+                }
+                L.circleMarker([lat, lng], { radius: 7, fillColor: dotColor, color: "white", weight: 1.5, fillOpacity: 0.9 }).addTo(markers)
+                .bindPopup(`<b>${row["Centro Educativo"]}</b><br>Etapa: ${row["Etapa"]}<br>Avance: ${(row["Porcentaje de avance"]*100).toFixed(1)}%`);
+            }
+        });
+
+        document.getElementById('totalSel').innerText = filtered.length;
+        if(analysisKey) renderChart(filtered);
+    }
+
+    function renderChart(data) {
+        const stats = {};
+        data.forEach(r => { const v = r[analysisKey] || "Sin Datos"; stats[v] = (stats[v] || 0) + 1; });
+        const labels = Object.keys(stats);
+        if(activeChart) activeChart.destroy();
+        activeChart = new Chart(document.getElementById('executiveChart'), {
+            type: 'bar',
+            data: { labels: labels, datasets: [{ data: Object.values(stats), backgroundColor: labels.map(l => colorMap[l] || "#0ea5e9") }] },
+            options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                scales: { x: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } }, y: { ticks: { color: '#fff', font: { size: 10 } } } }
+            }
+        });
+    }
+
+    // Ejecutar al cargar la ventana
+    window.onload = loadFromSheets;
+</script>
+</body>
+</html>
