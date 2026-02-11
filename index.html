@@ -87,29 +87,26 @@
     const colors = ["#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4"];
     let colorMap = {};
 
-    // CONFIGURACIÓN DE ORIGEN DE DATOS
     const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQiyIjmU8Mpr4F3rnKa-y69G4Lf0wCk_FXo1GVgiFBSZI6rucPIG6PxVY9J5BjCYQ/pub?gid=1425429813&single=true&output=csv";
-    
-    // Bypass de CORS usando AllOrigins
     const PROXY_URL = `https://api.allorigins.win/raw?url=${encodeURIComponent(SHEET_URL)}`;
 
-    // Inicialización del Mapa
     const map = L.map('map', { center: [13.79, -88.89], zoom: 9, zoomControl: false });
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
     L.control.zoom({ position: 'topright' }).addTo(map);
     const markers = L.layerGroup().addTo(map);
 
+    // FILTROS ACTUALIZADOS CON PEGAS ELABORACIÓN Y REUBICACIÓN TEMPORAL
     const filterConfig = [
         { lab: "Departamento", key: "Departamento" },
         { lab: "Etapa", key: "Etapa" },
         { lab: "Rango de Avance", key: "RangoAvance" },
         { lab: "Empresa obras", key: "Empresa obras" },
-        { lab: "Empresa supervisión", key: "Empresa supervisión" },
+        { lab: "PEGAS Elaboración", key: "PEGAS Elaboración" }, // Nuevo filtro
         { lab: "PEGAS Ejecución", key: "PEGAS Ejecución" },
+        { lab: "Reubicación Temporal", key: "Reubicación Temporal" }, // Nuevo filtro
         { lab: "Administrador de contrato", key: "Administrador de contrato" }
     ];
 
-    // Función principal para cargar desde Sheets
     async function loadFromSheets() {
         const statusDiv = document.getElementById('status');
         try {
@@ -140,12 +137,15 @@
     function processData(rawData) {
         db = rawData.map(row => {
             const cleanRow = {};
-            Object.keys(row).forEach(k => cleanRow[k.trim()] = row[k]);
+            // Limpieza profunda de claves (remueve espacios y caracteres invisibles)
+            Object.keys(row).forEach(k => {
+                const cleanKey = k.trim().replace(/\s+/g, ' ');
+                cleanRow[cleanKey] = row[k];
+            });
             
-            // Procesar porcentaje
-            let rawVal = String(cleanRow["Porcentaje de avance"] || "0").replace('%','');
+            let rawVal = String(cleanRow["Porcentaje de avance"] || "0").replace('%','').trim();
             let val = parseFloat(rawVal);
-            if (val > 1) val = val / 100; // Normalizar si es 85 en lugar de 0.85
+            if (val > 1) val = val / 100;
             
             let rango = "N/A";
             if (val >= 1) rango = "5. 100%";
@@ -161,7 +161,6 @@
         renderUI();
     }
 
-    // Carga de archivo local (Opcional)
     document.getElementById('fileInput').onchange = function(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -185,35 +184,44 @@
         document.getElementById('totalUniv').innerText = db.length;
         const container = document.getElementById('dynamicFilters');
         container.innerHTML = "";
+        
         filterConfig.forEach(f => {
-            const vals = [...new Set(db.map(r => r[f.key]))].filter(v => v).sort();
+            // Obtenemos valores únicos y eliminamos nulos/vacíos
+            const vals = [...new Set(db.map(r => r[f.key]))]
+                         .filter(v => v !== null && v !== undefined && String(v).trim() !== "")
+                         .sort();
+
             const div = document.createElement('div');
             div.className = "filter-card";
             div.innerHTML = `
                 <div class="filter-group">
                     <label>${f.lab}</label>
-                    <div class="analyze-toggle" id="toggle-${f.key}">
-                        <input type="radio" name="analyze" id="rad-${f.key}" onclick="handleAnalysisClick('${f.key}', '${f.lab}')"> Analizar
+                    <div class="analyze-toggle" id="toggle-${f.key.replace(/\s+/g, '')}">
+                        <input type="radio" name="analyze" id="rad-${f.key.replace(/\s+/g, '')}" onclick="handleAnalysisClick('${f.key}', '${f.lab}')"> Analizar
                     </div>
                     <select class="f-item" data-key="${f.key}"><option value="">-- Todos --</option>
                     ${vals.map(v => `<option value="${v}">${v}</option>`).join('')}</select>
                 </div>`;
             container.appendChild(div);
         });
+        
         document.querySelectorAll('.f-item').forEach(s => s.onchange = update);
         document.getElementById('mainSearch').oninput = update;
         update();
     }
 
     function handleAnalysisClick(key, label) {
+        const safeId = key.replace(/\s+/g, '');
         if (analysisKey === key) {
             analysisKey = null;
             document.getElementById('chart-overlay').style.display = "none";
             document.querySelectorAll('.analyze-toggle').forEach(t => t.classList.remove('active'));
+            document.getElementById('rad-' + safeId).checked = false;
         } else {
             analysisKey = key;
             document.querySelectorAll('.analyze-toggle').forEach(t => t.classList.remove('active'));
-            document.getElementById('toggle-' + key).classList.add('active');
+            document.getElementById('toggle-' + safeId).classList.add('active');
+            document.getElementById('rad-' + safeId).checked = true;
             document.getElementById('chartTitle').innerText = "Distribución por " + label;
             document.getElementById('chart-overlay').style.display = "block";
         }
@@ -227,50 +235,5 @@
         let cIdx = 0;
 
         const filtered = db.filter(row => {
-            const matchSearch = !search || String(row["Código"] || "").toLowerCase().includes(search) || String(row["Centro Educativo"] || "").toLowerCase().includes(search);
-            let matchFilters = true;
-            document.querySelectorAll('.f-item').forEach(sel => {
-                if(sel.value && String(row[sel.dataset.key]) !== sel.value) matchFilters = false;
-            });
-            return matchSearch && matchFilters;
-        });
-
-        filtered.forEach(row => {
-            const lat = parseFloat(row["Latitud"]), lng = parseFloat(row["Longitud"]);
-            if(!isNaN(lat) && !isNaN(lng)) {
-                let dotColor = "#0ea5e9";
-                if (analysisKey) {
-                    const v = row[analysisKey] || "Otros";
-                    if (!colorMap[v]) colorMap[v] = colors[cIdx++ % colors.length];
-                    dotColor = colorMap[v];
-                } else {
-                    dotColor = row["Porcentaje de avance"] >= 1 ? "#10b981" : "#0ea5e9";
-                }
-                L.circleMarker([lat, lng], { radius: 7, fillColor: dotColor, color: "white", weight: 1.5, fillOpacity: 0.9 }).addTo(markers)
-                .bindPopup(`<b>${row["Centro Educativo"]}</b><br>Etapa: ${row["Etapa"]}<br>Avance: ${(row["Porcentaje de avance"]*100).toFixed(1)}%`);
-            }
-        });
-
-        document.getElementById('totalSel').innerText = filtered.length;
-        if(analysisKey) renderChart(filtered);
-    }
-
-    function renderChart(data) {
-        const stats = {};
-        data.forEach(r => { const v = r[analysisKey] || "Sin Datos"; stats[v] = (stats[v] || 0) + 1; });
-        const labels = Object.keys(stats);
-        if(activeChart) activeChart.destroy();
-        activeChart = new Chart(document.getElementById('executiveChart'), {
-            type: 'bar',
-            data: { labels: labels, datasets: [{ data: Object.values(stats), backgroundColor: labels.map(l => colorMap[l] || "#0ea5e9") }] },
-            options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
-                scales: { x: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } }, y: { ticks: { color: '#fff', font: { size: 10 } } } }
-            }
-        });
-    }
-
-    // Ejecutar al cargar la ventana
-    window.onload = loadFromSheets;
-</script>
-</body>
-</html>
+            const matchSearch = !search || 
+                               String(row["Código"] || "").toLowerCase().includes(search) ||
