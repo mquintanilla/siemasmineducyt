@@ -21,18 +21,13 @@
         .file-label:hover { background: var(--primary); color: white; }
 
         #status { font-size: 11px; text-align: center; margin-top: 10px; padding: 8px; border-radius: 8px; font-weight: 500; }
-        .status-loading { color: #f59e0b; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); }
-        .status-success { color: var(--accent); background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); }
-        .status-error { color: #ef4444; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); }
+        .status-loading { color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
+        .status-success { color: var(--accent); background: rgba(16, 185, 129, 0.1); }
 
         .scroll-content { padding: 15px; overflow-y: auto; flex: 1; }
         .filter-card { background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; margin-bottom: 12px; border: 1px solid #334155; }
-        .filter-group { position: relative; }
         .filter-group label { display: block; font-size: 9px; color: #94a3b8; text-transform: uppercase; margin-bottom: 6px; font-weight: 800; }
         
-        .analyze-toggle { position: absolute; right: 0; top: 0; display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 9px; color: #94a3b8; }
-        .analyze-toggle.active { color: var(--accent); font-weight: bold; }
-
         select, input { width: 100%; background: #0f172a; border: 1px solid #475569; color: white; padding: 8px 10px; border-radius: 6px; font-size: 12px; outline: none; }
 
         #map-area { flex: 1; position: relative; }
@@ -43,7 +38,16 @@
         .stat-card h3 { margin: 0; font-size: 9px; text-transform: uppercase; color: #94a3b8; }
         .stat-card p { margin: 5px 0 0; font-size: 1.8rem; font-weight: 800; color: var(--primary); }
 
-        #chart-overlay { position: absolute; bottom: 30px; left: 20px; z-index: 1000; background: var(--glass); backdrop-filter: blur(15px); padding: 20px; border-radius: 20px; width: 380px; border: 1px solid rgba(255,255,255,0.2); display: none; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+        /* Estilos mejorados para Popup */
+        .leaflet-popup-content-wrapper { background: var(--panel); color: white; border: 1px solid var(--primary); border-radius: 12px; }
+        .leaflet-popup-tip { background: var(--panel); }
+        .popup-info-grid { display: grid; grid-template-columns: 1fr; gap: 5px; margin-top: 10px; font-size: 11px; border-top: 1px solid #475569; padding-top: 10px; }
+        .popup-info-item { display: flex; justify-content: space-between; border-bottom: 1px border-bottom: 1px solid rgba(255,255,255,0.05); padding: 2px 0; }
+        .popup-info-label { color: #94a3b8; font-weight: bold; margin-right: 10px; }
+        .popup-info-value { color: #f1f5f9; text-align: right; }
+        
+        .nav-btn { display: block; width: 100%; background: var(--primary); color: white !important; text-align: center; padding: 10px; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 11px; margin-top: 12px; box-sizing: border-box; }
+        .dist-info { background: rgba(16, 185, 129, 0.1); border: 1px solid var(--accent); padding: 8px; border-radius: 6px; margin-top: 10px; font-size: 11px; color: var(--accent); }
     </style>
 </head>
 <body>
@@ -74,36 +78,38 @@
         <div class="stat-card"><h3>Total Centros</h3><p id="totalUniv">0</p></div>
         <div class="stat-card"><h3>Seleccionados</h3><p id="totalSel" style="color: var(--accent);">0</p></div>
     </div>
-    <div id="chart-overlay">
-        <h4 id="chartTitle" style="margin:0 0 15px 0; text-align:center; font-size:11px; color:var(--accent); text-transform:uppercase;">Análisis</h4>
-        <div style="height: 250px;"><canvas id="executiveChart"></canvas></div>
-    </div>
 </div>
 
 <script>
     let db = [];
-    let activeChart = null;
-    let analysisKey = null;
+    let userLocation = null;
     const colors = ["#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4"];
-    let colorMap = {};
 
     const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQiyIjmU8Mpr4F3rnKa-y69G4Lf0wCk_FXo1GVgiFBSZI6rucPIG6PxVY9J5BjCYQ/pub?gid=1425429813&single=true&output=csv";
     const PROXY_URL = `https://api.allorigins.win/raw?url=${encodeURIComponent(SHEET_URL)}`;
 
-    const map = L.map('map', { center: [13.79, -88.89], zoom: 9, zoomControl: false });
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+    const darkMap = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png');
+    const streetMap = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}');
+    const satelliteMap = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}');
+
+    const map = L.map('map', { center: [13.79, -88.89], zoom: 9, zoomControl: false, layers: [darkMap] });
+    L.control.layers({ "Modo Oscuro": darkMap, "Calles": streetMap, "Satélite": satelliteMap }, null, { position: 'topright' }).addTo(map);
     L.control.zoom({ position: 'topright' }).addTo(map);
+
     const markers = L.layerGroup().addTo(map);
 
-    // FILTROS ACTUALIZADOS CON PEGAS ELABORACIÓN Y REUBICACIÓN TEMPORAL
+    // Localización del usuario
+    map.locate({setView: false});
+    map.on('locationfound', (e) => userLocation = e.latlng);
+
     const filterConfig = [
         { lab: "Departamento", key: "Departamento" },
         { lab: "Etapa", key: "Etapa" },
-        { lab: "Rango de Avance", key: "RangoAvance" },
         { lab: "Empresa obras", key: "Empresa obras" },
-        { lab: "PEGAS Elaboración", key: "PEGAS Elaboración" }, // Nuevo filtro
+        { lab: "Empresa supervisión", key: "Empresa supervisión" },
+        { lab: "PEGAS Elaboración", key: "PEGAS Elaboración" },
         { lab: "PEGAS Ejecución", key: "PEGAS Ejecución" },
-        { lab: "Reubicación Temporal", key: "Reubicación Temporal" }, // Nuevo filtro
+        { lab: "Reubicación Temporal", key: "Reubicación Temporal" },
         { lab: "Administrador de contrato", key: "Administrador de contrato" }
     ];
 
@@ -111,129 +117,103 @@
         const statusDiv = document.getElementById('status');
         try {
             Papa.parse(PROXY_URL, {
-                download: true,
-                header: true,
-                skipEmptyLines: true,
+                download: true, header: true, skipEmptyLines: true,
                 complete: function(results) {
-                    if (results.data && results.data.length > 0) {
-                        processData(results.data);
-                        statusDiv.className = "status-success";
-                        statusDiv.innerText = "✅ Sincronizado con Google Sheets";
-                    } else {
-                        throw new Error("Datos vacíos");
-                    }
-                },
-                error: function(err) {
-                    statusDiv.className = "status-error";
-                    statusDiv.innerText = "❌ Error al leer datos del Sheet";
+                    processData(results.data);
+                    statusDiv.className = "status-success";
+                    statusDiv.innerText = "✅ Sincronizado con Google Sheets";
                 }
             });
-        } catch (error) {
-            statusDiv.className = "status-error";
-            statusDiv.innerText = "❌ Error de conexión con el Proxy";
-        }
+        } catch (e) { statusDiv.innerText = "❌ Error de conexión"; }
     }
 
     function processData(rawData) {
         db = rawData.map(row => {
             const cleanRow = {};
-            // Limpieza profunda de claves (remueve espacios y caracteres invisibles)
+            // Limpieza de claves para manejar tildes y espacios ocultos de Google
             Object.keys(row).forEach(k => {
                 const cleanKey = k.trim().replace(/\s+/g, ' ');
                 cleanRow[cleanKey] = row[k];
             });
-            
             let rawVal = String(cleanRow["Porcentaje de avance"] || "0").replace('%','').trim();
-            let val = parseFloat(rawVal);
-            if (val > 1) val = val / 100;
-            
-            let rango = "N/A";
-            if (val >= 1) rango = "5. 100%";
-            else if (val < 0.10) rango = "1. Menor al 10%";
-            else if (val < 0.50) rango = "2. Menor al 50%";
-            else if (val < 0.70) rango = "3. Menor al 70%";
-            else rango = "4. Menor al 99%";
-            
-            cleanRow.RangoAvance = rango;
-            cleanRow["Porcentaje de avance"] = val;
+            cleanRow["Porcentaje de avance"] = parseFloat(rawVal) > 1 ? parseFloat(rawVal)/100 : parseFloat(rawVal);
             return cleanRow;
         });
         renderUI();
     }
 
-    document.getElementById('fileInput').onchange = function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = function(evt) {
-            let data = [];
-            if (file.name.endsWith('.csv')) {
-                data = Papa.parse(evt.target.result, { header: true, skipEmptyLines: true }).data;
-            } else {
-                const wb = XLSX.read(evt.target.result, { type: 'array' });
-                data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-            }
-            processData(data);
-            document.getElementById('status').innerText = "📂 Cargado desde archivo local";
-            document.getElementById('status').className = "status-success";
-        };
-        file.name.endsWith('.csv') ? reader.readAsText(file) : reader.readAsArrayBuffer(file);
-    };
-
     function renderUI() {
         document.getElementById('totalUniv').innerText = db.length;
         const container = document.getElementById('dynamicFilters');
         container.innerHTML = "";
-        
         filterConfig.forEach(f => {
-            // Obtenemos valores únicos y eliminamos nulos/vacíos
-            const vals = [...new Set(db.map(r => r[f.key]))]
-                         .filter(v => v !== null && v !== undefined && String(v).trim() !== "")
-                         .sort();
-
+            const vals = [...new Set(db.map(r => r[f.key]))].filter(v => v && v !== "").sort();
             const div = document.createElement('div');
             div.className = "filter-card";
-            div.innerHTML = `
-                <div class="filter-group">
-                    <label>${f.lab}</label>
-                    <div class="analyze-toggle" id="toggle-${f.key.replace(/\s+/g, '')}">
-                        <input type="radio" name="analyze" id="rad-${f.key.replace(/\s+/g, '')}" onclick="handleAnalysisClick('${f.key}', '${f.lab}')"> Analizar
-                    </div>
-                    <select class="f-item" data-key="${f.key}"><option value="">-- Todos --</option>
-                    ${vals.map(v => `<option value="${v}">${v}</option>`).join('')}</select>
-                </div>`;
+            div.innerHTML = `<div class="filter-group"><label>${f.lab}</label><select class="f-item" data-key="${f.key}"><option value="">-- Todos --</option>${vals.map(v => `<option value="${v}">${v}</option>`).join('')}</select></div>`;
             container.appendChild(div);
         });
-        
         document.querySelectorAll('.f-item').forEach(s => s.onchange = update);
         document.getElementById('mainSearch').oninput = update;
-        update();
-    }
-
-    function handleAnalysisClick(key, label) {
-        const safeId = key.replace(/\s+/g, '');
-        if (analysisKey === key) {
-            analysisKey = null;
-            document.getElementById('chart-overlay').style.display = "none";
-            document.querySelectorAll('.analyze-toggle').forEach(t => t.classList.remove('active'));
-            document.getElementById('rad-' + safeId).checked = false;
-        } else {
-            analysisKey = key;
-            document.querySelectorAll('.analyze-toggle').forEach(t => t.classList.remove('active'));
-            document.getElementById('toggle-' + safeId).classList.add('active');
-            document.getElementById('rad-' + safeId).checked = true;
-            document.getElementById('chartTitle').innerText = "Distribución por " + label;
-            document.getElementById('chart-overlay').style.display = "block";
-        }
         update();
     }
 
     function update() {
         markers.clearLayers();
         const search = document.getElementById('mainSearch').value.toLowerCase();
-        colorMap = {};
-        let cIdx = 0;
-
+        
         const filtered = db.filter(row => {
-            const matchSearch = !search || 
-                               String(row["Código"] || "").toLowerCase().includes(search) ||
+            const matchSearch = !search || String(row["Código"]).toLowerCase().includes(search) || String(row["Centro Educativo"]).toLowerCase().includes(search);
+            let matchFilters = true;
+            document.querySelectorAll('.f-item').forEach(sel => { if(sel.value && String(row[sel.dataset.key]) !== sel.value) matchFilters = false; });
+            return matchSearch && matchFilters;
+        });
+
+        filtered.forEach(row => {
+            const lat = parseFloat(row["Latitud"]), lng = parseFloat(row["Longitud"]);
+            if(!isNaN(lat) && !isNaN(lng)) {
+                let distHtml = "";
+                let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+                
+                if(userLocation) {
+                    const dKm = (userLocation.distanceTo([lat, lng])/1000).toFixed(1);
+                    const time = Math.round((dKm * 1.5) + 5);
+                    distHtml = `<div class="dist-info">📏 <b>Distancia:</b> ${dKm} km | ⏱️ <b>Tiempo est.:</b> ${time} min</div>`;
+                    mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${userLocation.lat},${userLocation.lng}&destination=${lat},${lng}`;
+                }
+
+                // Generación de información completa del Popup basada en las columnas
+                let detailsHtml = "";
+                const exclude = ["Latitud", "Longitud", "Centro Educativo", "Código", "Porcentaje de avance"];
+                Object.keys(row).forEach(key => {
+                    if(!exclude.includes(key) && row[key]) {
+                        detailsHtml += `<div class="popup-info-item"><span class="popup-info-label">${key}:</span><span class="popup-info-value">${row[key]}</span></div>`;
+                    }
+                });
+
+                const dotColor = row["Porcentaje de avance"] >= 1 ? "#10b981" : "#0ea5e9";
+                
+                L.circleMarker([lat, lng], { radius: 7, fillColor: dotColor, color: "white", weight: 1.5, fillOpacity: 0.9 }).addTo(markers)
+                .bindPopup(`
+                    <div style="min-width:250px">
+                        <b style="color:var(--primary); font-size:14px">${row["Centro Educativo"]}</b><br>
+                        <small>Código: ${row["Código"]}</small>
+                        
+                        <div class="popup-info-grid">
+                            <div class="popup-info-item"><span class="popup-info-label">Avance:</span><span class="popup-info-value" style="color:var(--accent); font-weight:bold">${(row["Porcentaje de avance"]*100).toFixed(1)}%</span></div>
+                            ${detailsHtml}
+                        </div>
+                        
+                        ${distHtml}
+                        <a href="${mapsUrl}" target="_blank" class="nav-btn">📍 INICIAR NAVEGACIÓN (Google Maps)</a>
+                    </div>
+                `);
+            }
+        });
+        document.getElementById('totalSel').innerText = filtered.length;
+    }
+
+    window.onload = loadFromSheets;
+</script>
+</body>
+</html>
