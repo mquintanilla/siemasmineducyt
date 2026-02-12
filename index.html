@@ -8,6 +8,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
     <style>
         :root { --primary: #0ea5e9; --accent: #10b981; --bg: #0f172a; --panel: #1e293b; --text: #f1f5f9; --glass: rgba(30, 41, 59, 0.9); }
         body { font-family: 'Inter', system-ui, sans-serif; margin: 0; display: flex; height: 100vh; background: var(--bg); color: var(--text); overflow: hidden; }
@@ -17,17 +18,24 @@
         header h1 { font-size: 0.85rem; margin: 0; text-transform: uppercase; letter-spacing: 1px; line-height: 1.5; color: white; }
 
         .upload-section { padding: 20px; background: rgba(0,0,0,0.2); }
-        .file-label { display: flex; align-items: center; justify-content: center; gap: 12px; background: rgba(14, 165, 233, 0.1); border: 2px dashed var(--primary); color: var(--primary); padding: 14px; border-radius: 12px; cursor: pointer; font-weight: bold; transition: 0.3s; text-transform: uppercase; font-size: 13px; }
-        .file-label:hover { background: var(--primary); color: white; }
+        .file-controls { display: flex; gap: 8px; }
+        .file-label { flex: 1; display: flex; align-items: center; justify-content: center; background: rgba(14, 165, 233, 0.1); border: 2px dashed var(--primary); color: var(--primary); padding: 10px; border-radius: 12px; cursor: pointer; font-weight: bold; font-size: 11px; }
+        
+        .sync-btn { background: var(--primary); color: white; border: none; padding: 0 15px; border-radius: 12px; cursor: pointer; font-size: 18px; transition: 0.3s; }
+        .sync-btn:hover { background: #0284c7; transform: rotate(180deg); }
 
-        #status { font-size: 11px; text-align: center; margin-top: 10px; padding: 8px; border-radius: 8px; font-weight: 500; }
+        #status { font-size: 11px; text-align: center; margin-top: 10px; padding: 8px; border-radius: 8px; }
         .status-loading { color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
         .status-success { color: var(--accent); background: rgba(16, 185, 129, 0.1); }
 
         .scroll-content { padding: 15px; overflow-y: auto; flex: 1; }
-        .filter-card { background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; margin-bottom: 12px; border: 1px solid #334155; }
+        .filter-card { background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; margin-bottom: 12px; border: 1px solid #334155; position: relative; }
         .filter-group label { display: block; font-size: 9px; color: #94a3b8; text-transform: uppercase; margin-bottom: 6px; font-weight: 800; }
         
+        .analyze-btn { position: absolute; right: 12px; top: 12px; font-size: 9px; cursor: pointer; color: #64748b; background: rgba(255,255,255,0.05); padding: 2px 8px; border-radius: 20px; border: 1px solid transparent; }
+        .analyze-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(16, 185, 129, 0.1); font-weight: bold; }
+        .analyze-btn input { display: none; }
+
         select, input { width: 100%; background: #0f172a; border: 1px solid #475569; color: white; padding: 8px 10px; border-radius: 6px; font-size: 12px; outline: none; }
 
         #map-area { flex: 1; position: relative; }
@@ -35,38 +43,29 @@
 
         .stats-container { position: absolute; top: 20px; left: 20px; z-index: 1000; display: flex; gap: 15px; pointer-events: none; }
         .stat-card { background: var(--glass); backdrop-filter: blur(12px); padding: 12px 20px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.1); text-align: center; }
-        .stat-card h3 { margin: 0; font-size: 9px; text-transform: uppercase; color: #94a3b8; }
         .stat-card p { margin: 5px 0 0; font-size: 1.8rem; font-weight: 800; color: var(--primary); }
 
-        /* Estilos mejorados para Popup */
-        .leaflet-popup-content-wrapper { background: var(--panel); color: white; border: 1px solid var(--primary); border-radius: 12px; }
-        .leaflet-popup-tip { background: var(--panel); }
-        .popup-info-grid { display: grid; grid-template-columns: 1fr; gap: 5px; margin-top: 10px; font-size: 11px; border-top: 1px solid #475569; padding-top: 10px; }
-        .popup-info-item { display: flex; justify-content: space-between; border-bottom: 1px border-bottom: 1px solid rgba(255,255,255,0.05); padding: 2px 0; }
-        .popup-info-label { color: #94a3b8; font-weight: bold; margin-right: 10px; }
-        .popup-info-value { color: #f1f5f9; text-align: right; }
-        
-        .nav-btn { display: block; width: 100%; background: var(--primary); color: white !important; text-align: center; padding: 10px; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 11px; margin-top: 12px; box-sizing: border-box; }
-        .dist-info { background: rgba(16, 185, 129, 0.1); border: 1px solid var(--accent); padding: 8px; border-radius: 6px; margin-top: 10px; font-size: 11px; color: var(--accent); }
+        #chart-overlay { position: absolute; bottom: 30px; left: 20px; z-index: 1000; background: var(--glass); backdrop-filter: blur(15px); padding: 20px; border-radius: 20px; width: 400px; border: 1px solid rgba(255,255,255,0.2); display: none; }
+
+        .popup-info-grid { display: grid; gap: 4px; margin-top: 8px; font-size: 11px; border-top: 1px solid #475569; padding-top: 8px; }
+        .popup-info-item { display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .nav-btn { display: block; width: 100%; background: var(--primary); color: white !important; text-align: center; padding: 10px; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 11px; margin-top: 10px; box-sizing: border-box; }
     </style>
 </head>
 <body>
 
 <div id="sidebar">
-    <header><h1>Seguimiento de condiciones ambientales y sociales<br>MINEDUCYT / BCIE</h1></header>
+    <header><h1>Seguimiento Ambiental y Social<br>MINEDUCYT / BCIE</h1></header>
     <div class="upload-section">
-        <label class="file-label">
-            <span>📂 CARGAR DATOS (LOCAL)</span>
-            <input type="file" id="fileInput" accept=".csv, .xlsx" style="display:none">
-        </label>
-        <div id="status" class="status-loading">Conectando con la base de datos...</div>
+        <div class="file-controls">
+            <label class="file-label"><span>📂 SUBIR ARCHIVO</span><input type="file" id="fileInput" accept=".csv, .xlsx" style="display:none"></label>
+            <button class="sync-btn" onclick="loadFromSheets()" title="Fuerza actualización de Google Sheets">🔄</button>
+        </div>
+        <div id="status" class="status-loading">Iniciando sistema...</div>
     </div>
     <div class="scroll-content">
         <div class="filter-card">
-            <div class="filter-group">
-                <label>🔎 BUSCAR CENTRO / CÓDIGO</label>
-                <input type="text" id="mainSearch" placeholder="Escriba aquí...">
-            </div>
+            <div class="filter-group"><label>🔎 BUSCAR CENTRO / CÓDIGO</label><input type="text" id="mainSearch" placeholder="Escriba aquí..."></div>
         </div>
         <div id="dynamicFilters"></div>
     </div>
@@ -75,30 +74,34 @@
 <div id="map-area">
     <div id="map"></div>
     <div class="stats-container">
-        <div class="stat-card"><h3>Total Centros</h3><p id="totalUniv">0</p></div>
-        <div class="stat-card"><h3>Seleccionados</h3><p id="totalSel" style="color: var(--accent);">0</p></div>
+        <div class="stat-card"><h3>Total</h3><p id="totalUniv">0</p></div>
+        <div class="stat-card"><h3>Filtrados</h3><p id="totalSel" style="color: var(--accent);">0</p></div>
+    </div>
+    <div id="chart-overlay">
+        <h4 id="chartTitle" style="margin:0 0 15px 0; text-align:center; font-size:11px; color:var(--accent); text-transform:uppercase;">Análisis</h4>
+        <div style="height: 280px;"><canvas id="executiveChart"></canvas></div>
     </div>
 </div>
 
 <script>
+    Chart.register(ChartDataLabels);
     let db = [];
     let userLocation = null;
-    const colors = ["#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4"];
+    let activeChart = null;
+    let analysisKey = null;
+    const colors = ["#38bdf8", "#34d399", "#fbbf24", "#f87171", "#a78bfa", "#fb7185", "#22d3ee"];
+    let colorMap = {};
 
+    // NUEVO VÍNCULO ACTUALIZADO
     const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQL3tPA7ak0EZiRmbGVxoH2CBS3F2Nvg7KZEmxRqW6s6salTSMpLVSfrCvj1fuAeMhvDV-T-NTt7Jxi/pub?gid=70238907&single=true&output=csv";
-    const PROXY_URL = `https://api.allorigins.win/raw?url=${encodeURIComponent(SHEET_URL)}`;
 
-    const darkMap = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png');
+    const map = L.map('map', { center: [13.79, -88.89], zoom: 9, zoomControl: false });
+    const darkMap = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
     const streetMap = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}');
     const satelliteMap = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}');
-
-    const map = L.map('map', { center: [13.79, -88.89], zoom: 9, zoomControl: false, layers: [darkMap] });
-    L.control.layers({ "Modo Oscuro": darkMap, "Calles": streetMap, "Satélite": satelliteMap }, null, { position: 'topright' }).addTo(map);
-    L.control.zoom({ position: 'topright' }).addTo(map);
-
+    L.control.layers({ "Oscuro": darkMap, "Calles": streetMap, "Satelital": satelliteMap }, null, { position: 'topright' }).addTo(map);
     const markers = L.layerGroup().addTo(map);
 
-    // Localización del usuario
     map.locate({setView: false});
     map.on('locationfound', (e) => userLocation = e.latlng);
 
@@ -115,27 +118,36 @@
 
     async function loadFromSheets() {
         const statusDiv = document.getElementById('status');
-        try {
-            Papa.parse(PROXY_URL, {
-                download: true, header: true, skipEmptyLines: true,
-                complete: function(results) {
+        statusDiv.innerText = "🔄 Forzando actualización...";
+        statusDiv.className = "status-loading";
+        
+        // El truco del timestamp (?t=...) rompe la caché del navegador
+        const nocacheUrl = SHEET_URL + "&t=" + new Date().getTime();
+        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(nocacheUrl)}`;
+
+        Papa.parse(proxyUrl, {
+            download: true,
+            header: true,
+            skipEmptyLines: true,
+            complete: (results) => {
+                if(results.data.length > 0) {
                     processData(results.data);
+                    statusDiv.innerText = "✅ Datos Sincronizados";
                     statusDiv.className = "status-success";
-                    statusDiv.innerText = "✅ Sincronizado con Google Sheets";
                 }
-            });
-        } catch (e) { statusDiv.innerText = "❌ Error de conexión"; }
+            },
+            error: (err) => {
+                statusDiv.innerText = "❌ Error: Verifica la publicación del Sheet";
+                statusDiv.className = "status-error";
+            }
+        });
     }
 
     function processData(rawData) {
         db = rawData.map(row => {
             const cleanRow = {};
-            // Limpieza de claves para manejar tildes y espacios ocultos de Google
-            Object.keys(row).forEach(k => {
-                const cleanKey = k.trim().replace(/\s+/g, ' ');
-                cleanRow[cleanKey] = row[k];
-            });
-            let rawVal = String(cleanRow["Porcentaje de avance"] || "0").replace('%','').trim();
+            Object.keys(row).forEach(k => cleanRow[k.trim().replace(/\s+/g, ' ')] = row[k]);
+            let rawVal = String(cleanRow["Porcentaje de avance"] || "0").replace('%','');
             cleanRow["Porcentaje de avance"] = parseFloat(rawVal) > 1 ? parseFloat(rawVal)/100 : parseFloat(rawVal);
             return cleanRow;
         });
@@ -148,9 +160,18 @@
         container.innerHTML = "";
         filterConfig.forEach(f => {
             const vals = [...new Set(db.map(r => r[f.key]))].filter(v => v && v !== "").sort();
+            const safeKey = f.key.replace(/\s+/g, '');
             const div = document.createElement('div');
             div.className = "filter-card";
-            div.innerHTML = `<div class="filter-group"><label>${f.lab}</label><select class="f-item" data-key="${f.key}"><option value="">-- Todos --</option>${vals.map(v => `<option value="${v}">${v}</option>`).join('')}</select></div>`;
+            div.innerHTML = `
+                <label class="analyze-btn" id="btn-${safeKey}">
+                    <input type="radio" name="analisis" onclick="toggleAnalisis('${f.key}', '${f.lab}')"> 📊 Analizar
+                </label>
+                <div class="filter-group">
+                    <label>${f.lab}</label>
+                    <select class="f-item" data-key="${f.key}"><option value="">-- Todos --</option>
+                    ${vals.map(v => `<option value="${v}">${v}</option>`).join('')}</select>
+                </div>`;
             container.appendChild(div);
         });
         document.querySelectorAll('.f-item').forEach(s => s.onchange = update);
@@ -158,10 +179,29 @@
         update();
     }
 
+    function toggleAnalisis(key, label) {
+        const safeKey = key.replace(/\s+/g, '');
+        const btn = document.getElementById('btn-' + safeKey);
+        if (analysisKey === key) {
+            analysisKey = null;
+            btn.classList.remove('active');
+            btn.querySelector('input').checked = false;
+            document.getElementById('chart-overlay').style.display = "none";
+        } else {
+            document.querySelectorAll('.analyze-btn').forEach(b => b.classList.remove('active'));
+            analysisKey = key;
+            btn.classList.add('active');
+            document.getElementById('chartTitle').innerText = "Distribución: " + label;
+            document.getElementById('chart-overlay').style.display = "block";
+        }
+        update();
+    }
+
     function update() {
         markers.clearLayers();
         const search = document.getElementById('mainSearch').value.toLowerCase();
-        
+        colorMap = {}; let cIdx = 0;
+
         const filtered = db.filter(row => {
             const matchSearch = !search || String(row["Código"]).toLowerCase().includes(search) || String(row["Centro Educativo"]).toLowerCase().includes(search);
             let matchFilters = true;
@@ -172,49 +212,41 @@
         filtered.forEach(row => {
             const lat = parseFloat(row["Latitud"]), lng = parseFloat(row["Longitud"]);
             if(!isNaN(lat) && !isNaN(lng)) {
-                let distHtml = "";
-                let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-                
-                if(userLocation) {
-                    const dKm = (userLocation.distanceTo([lat, lng])/1000).toFixed(1);
-                    const time = Math.round((dKm * 1.5) + 5);
-                    distHtml = `<div class="dist-info">📏 <b>Distancia:</b> ${dKm} km | ⏱️ <b>Tiempo est.:</b> ${time} min</div>`;
-                    mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${userLocation.lat},${userLocation.lng}&destination=${lat},${lng}`;
+                let dotColor = row["Porcentaje de avance"] >= 1 ? "#10b981" : "#0ea5e9";
+                if (analysisKey) {
+                    const val = row[analysisKey] || "N/A";
+                    if (!colorMap[val]) colorMap[val] = colors[cIdx++ % colors.length];
+                    dotColor = colorMap[val];
                 }
 
-                // Generación de información completa del Popup basada en las columnas
-                let detailsHtml = "";
-                const exclude = ["Latitud", "Longitud", "Centro Educativo", "Código", "Porcentaje de avance"];
-                Object.keys(row).forEach(key => {
-                    if(!exclude.includes(key) && row[key]) {
-                        detailsHtml += `<div class="popup-info-item"><span class="popup-info-label">${key}:</span><span class="popup-info-value">${row[key]}</span></div>`;
-                    }
-                });
+                let details = "";
+                Object.keys(row).forEach(k => { if(!["Latitud","Longitud","Centro Educativo"].includes(k) && row[k]) details += `<div class="popup-info-item"><span style="color:#94a3b8;font-weight:bold">${k}:</span><span>${row[k]}</span></div>`; });
 
-                const dotColor = row["Porcentaje de avance"] >= 1 ? "#10b981" : "#0ea5e9";
-                
                 L.circleMarker([lat, lng], { radius: 7, fillColor: dotColor, color: "white", weight: 1.5, fillOpacity: 0.9 }).addTo(markers)
-                .bindPopup(`
-                    <div style="min-width:250px">
-                        <b style="color:var(--primary); font-size:14px">${row["Centro Educativo"]}</b><br>
-                        <small>Código: ${row["Código"]}</small>
-                        
-                        <div class="popup-info-grid">
-                            <div class="popup-info-item"><span class="popup-info-label">Avance:</span><span class="popup-info-value" style="color:var(--accent); font-weight:bold">${(row["Porcentaje de avance"]*100).toFixed(1)}%</span></div>
-                            ${detailsHtml}
-                        </div>
-                        
-                        ${distHtml}
-                        <a href="${mapsUrl}" target="_blank" class="nav-btn">📍 INICIAR NAVEGACIÓN (Google Maps)</a>
-                    </div>
-                `);
+                .bindPopup(`<b style="color:var(--primary)">${row["Centro Educativo"]}</b><div class="popup-info-grid">${details}</div><a href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank" class="nav-btn">📍 CÓMO LLEGAR</a>`);
             }
         });
         document.getElementById('totalSel').innerText = filtered.length;
+        if (analysisKey) renderChart(filtered);
+    }
+
+    function renderChart(data) {
+        const stats = {};
+        data.forEach(r => { const v = r[analysisKey] || "N/A"; stats[v] = (stats[v] || 0) + 1; });
+        const labels = Object.keys(stats);
+        if(activeChart) activeChart.destroy();
+        activeChart = new Chart(document.getElementById('executiveChart'), {
+            type: 'bar',
+            data: { labels: labels, datasets: [{ data: Object.values(stats), backgroundColor: labels.map(l => colorMap[l] || "#0ea5e9"), borderRadius: 5 }] },
+            options: { 
+                indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'right', color: '#fff', font: { weight: 'bold' } } },
+                scales: { x: { display: false }, y: { ticks: { color: '#fff' }, grid: { display: false } } }
+            }
+        });
     }
 
     window.onload = loadFromSheets;
 </script>
 </body>
-
 </html>
